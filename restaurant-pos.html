@@ -1485,12 +1485,9 @@ async function gsSyncDown(){
       localStorage.removeItem('rpos_sales');
       localStorage.removeItem('rpos_cajas');
       saveData(); // Guardar datos frescos de Sheets
-      // Forzar recarga completa de la UI
-      activeCat='Todos';
-      if(typeof renderPOS === 'function') renderPOS();
-      if(document.getElementById('usersView').classList.contains('on')) renderUserTbl();
-      if(document.getElementById('historyView').classList.contains('on')) loadHist();
-      toast(`✅ Sincronizado: ${products.length} productos, ${users.length} usuarios, ${sales.length} ventas`,'ok');
+      toast(`✅ Sincronizado: ${products.length} productos, ${users.length} usuarios. Recargando...`,'ok');
+      // Recargar página después de 1.5 segundos para que cargue datos frescos
+      setTimeout(()=>{ window.location.reload(); }, 1500);
     } else {
       toast('Error: No se recibieron datos de Sheets','er');
     }
@@ -2009,6 +2006,80 @@ function resetTodo(){
 
 // ─── BOOT ─────────────────────────────────────────────────
 loadData();
+
+// Auto-sincronizar con Google Sheets al abrir la página
+// Esto asegura que TODOS los dispositivos tengan datos actualizados
+// sin necesidad de que el admin esté presente
+if(gsUrl){
+  (async()=>{
+    try{
+      const res = await gsCall('getAll',{});
+      if(res && res.ok){
+        // Productos
+        if(res.products && res.products.length){
+          const localProds = JSON.parse(localStorage.getItem('rpos_prods')||'[]');
+          const synced = res.products.map(sp=>({
+            id: sp.id,
+            name: String(sp.name||'').trim(),
+            cat: String(sp.cat||sp.categoria||sp.category||'General').trim(),
+            price: parseFloat(sp.price||sp.precio||0),
+            cost: parseFloat(sp.cost||sp.costo||0),
+            stock: parseInt(sp.stock||0),
+            min: parseInt(sp.min||sp.minimo||5),
+            emoji: sp.emoji||'🍽️',
+            image: localProds.find(lp=>String(lp.id)===String(sp.id))?.image||''
+          })).filter(p=>p.name);
+          if(synced.length > 0) products = synced;
+        }
+        // Usuarios
+        if(res.users && res.users.length){
+          const synced = res.users.map(u=>({
+            id: u.id,
+            login: String(u.login||'').trim(),
+            name: String(u.name||'').trim(),
+            pass: String(u.pass||u.password||'').trim(),
+            role: String(u.role||u.rol||'seller').trim(),
+            active: u.active===true||String(u.active).toUpperCase()==='TRUE'
+          })).filter(u=>u.login);
+          if(synced.length > 0){
+            users = synced;
+            if(!users.find(u=>u.role==='admin'&&u.active)){
+              users[0].role='admin'; users[0].active=true;
+            }
+          }
+        }
+        // Ventas
+        if(res.sales && res.sales.length){
+          sales = res.sales.map(s=>({
+            id:s.id, timestamp:parseInt(s.timestamp)||Date.now(),
+            date:s.date||'', client:s.client||'',
+            items:s.items||'', sub:parseFloat(s.sub||s.total||0),
+            disc:parseFloat(s.disc||0), total:parseFloat(s.total||0),
+            cost:parseFloat(s.cost||0), profit:parseFloat(s.profit||0),
+            paid:parseFloat(s.paid||0), change:parseFloat(s.change||0),
+            seller:s.seller||'', anulada:s.anulada==='SI'||s.anulada===true,
+          }));
+        }
+        // Cajas
+        if(res.cajas && res.cajas.length){
+          cajas = res.cajas.map(c=>({
+            id:c.id, date:c.date||'', timestamp:parseInt(c.timestamp)||Date.now(),
+            seller:c.seller||'', monto:parseFloat(c.monto||0),
+            turno:c.turno||'', nota:c.nota||''
+          }));
+        }
+        // Guardar localmente
+        localStorage.setItem('rpos_prods', JSON.stringify(products));
+        localStorage.setItem('rpos_users', JSON.stringify(users));
+        localStorage.setItem('rpos_sales', JSON.stringify(sales));
+        localStorage.setItem('rpos_cajas', JSON.stringify(cajas));
+      }
+    }catch(e){
+      // Si falla la sincronización, usar datos locales — no interrumpir
+      console.warn('Auto-sync failed:', e);
+    }
+  })();
+}
 </script>
 </body>
 </html>
