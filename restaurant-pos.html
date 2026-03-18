@@ -1383,24 +1383,29 @@ async function testGs(){
 // Llamada a Google Sheets con respuesta legible
 async function gsCall(action, data){
   if(!gsUrl) return null;
+  // Usar GET con datos en URL para evitar CORS desde GitHub Pages
   try{
-    const res = await fetch(
-      `${gsUrl}?action=${action}`,
-      {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(data)
-      }
-    );
+    const params = new URLSearchParams({
+      action: action,
+      data: JSON.stringify(data||{})
+    });
+    const res = await fetch(`${gsUrl}?${params}`, {
+      method: 'GET',
+      mode: 'cors',
+    });
     return await res.json();
   }catch(e){
-    // Fallback con no-cors (sin leer respuesta)
-    await fetch(`${gsUrl}?action=${action}`,{
-      method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(data)
-    });
-    return {ok:true, noCors:true};
+    // Fallback: POST sin leer respuesta (para envíos)
+    try{
+      await fetch(`${gsUrl}?action=${action}`,{
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'text/plain'},
+        body:JSON.stringify({action, ...data})
+      });
+      return {ok:true, noCors:true};
+    }catch(e2){
+      throw new Error('Failed to fetch: '+e2.message);
+    }
   }
 }
 
