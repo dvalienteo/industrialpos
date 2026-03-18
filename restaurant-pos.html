@@ -426,6 +426,7 @@ tr:last-child td{border-bottom:none} tr:hover td{background:var(--sur2)}
         <button class="btn bp" onclick="testGs()">🔌 Probar conexión</button>
         <button class="btn bge-btn" onclick="gsSyncDown()" style="margin-left:6px">⬇️ Descargar datos</button>
         <button class="btn bs" onclick="gsSyncUp()" style="margin-left:6px">⬆️ Subir datos locales</button>
+        <button class="btn bs" onclick="showUsersDebug()" style="margin-left:6px">👥 Ver usuarios cargados</button>
         <div class="gss err" id="gsst"><div class="dot"></div><span id="gstx">Sin conectar — modo local activo</span></div>
       </div>
       <div class="cfgs">
@@ -1422,20 +1423,21 @@ async function gsSyncDown(){
     if(res && res.ok){
       // Merge: Sheets data takes priority, but keep local images
       if(res.products && res.products.length){
-        // Preserve local images since Sheets doesn't store base64
-        const localProds = products;
+        const localProds = JSON.parse(localStorage.getItem('rpos_prods')||'[]');
         products = res.products.map(sp=>{
           const local = localProds.find(lp=>String(lp.id)===String(sp.id));
           return {
-            id: sp.id, name: sp.name, cat: sp.cat||sp.categoria||sp.category||'',
+            id: sp.id,
+            name: String(sp.name||sp.nombre||'').trim(),
+            cat: String(sp.cat||sp.categoria||sp.category||'General').trim(),
             price: parseFloat(sp.price||sp.precio||0),
             cost: parseFloat(sp.cost||sp.costo||0),
             stock: parseInt(sp.stock||0),
             min: parseInt(sp.min||sp.minimo||sp.minimum||5),
             emoji: sp.emoji||'🍽️',
-            image: local?.image||'' // keep local image
+            image: local?.image||''
           };
-        });
+        }).filter(p=>p.name); // only keep products with a name
       }
       if(res.sales && res.sales.length){
         sales = res.sales.map(s=>({
@@ -1451,11 +1453,24 @@ async function gsSyncDown(){
         }));
       }
       if(res.users && res.users.length){
-        users = res.users.map(u=>({
-          id:u.id, login:u.login||'', name:u.name||'',
-          pass:u.pass||'', role:u.role||'seller',
-          active:u.active===true||u.active==='TRUE'||u.active===1
+        const synced = res.users.map(u=>({
+          id: u.id || u.ID || Date.now(),
+          login: String(u.login||u.usuario||u.username||'').trim(),
+          name: String(u.name||u.nombre||'').trim(),
+          pass: String(u.pass||u.password||u.contraseña||u.contrasena||'').trim(),
+          role: String(u.role||u.rol||'seller').trim(),
+          active: u.active===true||u.active==='TRUE'||String(u.active).toUpperCase()==='TRUE'
         }));
+        // Only replace if we got valid users with logins
+        const valid = synced.filter(u=>u.login);
+        if(valid.length > 0){
+          users = valid;
+          // Make sure there's always at least one admin
+          if(!users.find(u=>u.role==='admin'&&u.active)){
+            users[0].role='admin';
+            users[0].active=true;
+          }
+        }
       }
       if(res.cajas && res.cajas.length){
         cajas = res.cajas.map(c=>({
@@ -1465,7 +1480,10 @@ async function gsSyncDown(){
         }));
       }
       saveData(); // Update local cache
-      toast('✅ Datos sincronizados desde Google Sheets','ok');
+      // Force UI refresh
+      if(typeof renderPOS === 'function') renderPOS();
+      if(typeof renderUserTbl === 'function' && document.getElementById('usersView').classList.contains('on')) renderUserTbl();
+      toast(`✅ Sincronizado: ${products.length} productos, ${users.length} usuarios, ${sales.length} ventas`,'ok');
     }
   }catch(e){
     toast('No se pudo sincronizar: '+e.message,'er');
@@ -1920,6 +1938,14 @@ function clearLogo(){
   document.getElementById('topbarName').style.display='';
   document.getElementById('loginIconWrap').innerHTML='🍽️';
   toast('Logo eliminado','inf');
+}
+
+// ─── DEBUG ────────────────────────────────────────────────
+function showUsersDebug(){
+  const info = users.map(u=>
+    `• ${u.login} | pass: ${u.pass?'✅ ('+u.pass.length+' chars)':'❌ VACÍO'} | rol: ${u.role} | activo: ${u.active}`
+  ).join('\n');
+  alert(`Usuarios cargados (${users.length}):\n\n${info}\n\nSi el pass aparece ❌ VACÍO, el problema está en Google Sheets — la columna "pass" está vacía o tiene otro nombre.`);
 }
 
 // ─── RESET ────────────────────────────────────────────────
